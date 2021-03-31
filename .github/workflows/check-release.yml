@@ -1,0 +1,80 @@
+name: "check release"
+
+on:
+  workflow_dispatch:
+  push:
+  schedule:
+    - cron: "0 0 * * *"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v3
+        with:
+          github-token: ${{secrets.SECRET_TOKEN}}
+          script: |
+            await github.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'ghidra-build.yml',
+              ref: context.ref,
+              inputs: {
+                ref: 'master',
+                prerelease: '1'
+              }
+            })
+
+            await github.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'ghidra-build.yml',
+              ref: context.ref,
+              inputs: {
+                ref: 'debugger',
+                prerelease: '1'
+              }
+            })
+
+            let tags = await github.repos.listTags({
+              owner: 'NationalSecurityAgency',
+              repo: 'ghidra',
+              per_page: 4, // 9.2+
+            })
+
+            for (let i in tags.data){
+              console.log(tags.data[i].name)
+              try {
+                let release = await github.repos.getReleaseByTag({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag: tags.data[i].name
+                })
+                let assets = await github.repos.listReleaseAssets({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  release_id: release.data.id
+                })
+                if (assets.data.length === 0){
+                  await github.actions.createWorkflowDispatch({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    workflow_id: 'ghidra-build.yml',
+                    ref: context.ref,
+                    inputs: {
+                      ref: tags.data[i].name
+                    }
+                  })
+                }
+              } catch(e) {
+                await github.actions.createWorkflowDispatch({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: 'ghidra-build.yml',
+                  ref: context.ref,
+                  inputs: {
+                    ref: tags.data[i].name
+                  }
+                })
+              }
+            }

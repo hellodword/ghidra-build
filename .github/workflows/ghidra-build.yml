@@ -1,0 +1,241 @@
+name: "ghidra build"
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'NationalSecurityAgency/ghidra ref to build'
+        required: false
+      prerelease:
+        description: 'prerelease if not empty'
+        required: false
+  # push:
+  # schedule:
+  #   - cron: "0 0 * * *"
+
+# https://github.com/roblabla/ghidra-ci/blob/master/.github/workflows/ci.yml
+jobs:
+  build-windows:
+    name: Build Windows Binaries
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          repository: NationalSecurityAgency/ghidra
+          ref: ${{ github.event.inputs.ref }}
+      - uses: actions/setup-java@v1
+        with:
+          java-version: 11
+      - name: Install bison
+        run: |
+          choco install winflexbison
+          ren "C:\ProgramData\chocolatey\bin\win_bison.exe" "bison.exe"
+          ren "C:\ProgramData\chocolatey\bin\win_flex.exe" "flex.exe"
+      
+      - run: |
+          gradle --init-script gradle/support/fetchDependencies.gradle init
+
+      - run: |
+          gradle buildNatives_win64
+
+      - name: Upload Windows compilation output.
+        uses: actions/upload-artifact@v2
+        with:
+          name: natives-windows
+          path: "**/build/os/win64/"
+
+  build-macos:
+    name: Build MacOS Binaries
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          repository: NationalSecurityAgency/ghidra
+          ref: ${{ github.event.inputs.ref }}
+      - uses: actions/setup-java@v1
+        with:
+          java-version: 11
+
+      - run: |
+          gradle --init-script gradle/support/fetchDependencies.gradle init
+
+      - run: |
+          gradle buildNatives_osx64
+
+      - name: Upload MacOS compilation output.
+        uses: actions/upload-artifact@v2
+        with:
+          name: natives-macos
+          path: "**/build/os/osx64/"
+
+  build-linux:
+    name: Build Linux binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          repository: NationalSecurityAgency/ghidra
+          ref: ${{ github.event.inputs.ref }}
+      - uses: actions/setup-java@v1
+        with:
+          java-version: 11
+
+      - run: |
+          gradle --init-script gradle/support/fetchDependencies.gradle init
+
+      - run: |
+          gradle buildNatives_linux64
+
+      - name: Upload Linux compilation output.
+        uses: actions/upload-artifact@v2
+        with:
+          name: natives-linux
+          path: "**/build/os/linux64/"
+
+  dist:
+    name: "Build Ghidra distributable zip"
+    needs: ["build-windows", "build-macos", "build-linux"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          repository: NationalSecurityAgency/ghidra
+          ref: ${{ github.event.inputs.ref }}
+      - name: Download windows binaries
+        uses: actions/download-artifact@v2
+        with:
+          name: natives-windows
+      - name: Download MacOS binaries
+        uses: actions/download-artifact@v2
+        with:
+          name: natives-macos
+      - name: Download Linux binaries
+        uses: actions/download-artifact@v2
+        with:
+          name: natives-linux
+      - uses: actions/setup-java@v1
+        with:
+          java-version: 11
+
+      - run: |
+          gradle --init-script gradle/support/fetchDependencies.gradle init
+
+      # TODO: Pre-build GhidraDev
+      - name: Checkout ghidra-data
+        uses: actions/checkout@v2
+        with:
+          repository: NationalSecurityAgency/ghidra-data
+          path: 'ghidra-data'
+      - name: Copy ghidra-data files into the appropriate directories
+        run: cp -r ghidra-data/FunctionID/* Ghidra/Features/FunctionID/data
+      - name: Build ghidra, create a cross-platform distribution
+        run: |
+          gradle -x ip -PallPlatforms buildGhidra
+
+      - name: Upload final dist
+        uses: actions/upload-artifact@v2
+        with:
+          path: "build/dist/*"
+
+      - name: get commit id
+        id: get-commit-id
+        run: |
+          current_date=$(env TZ=Asia/Shanghai date +'%Y-%m-%d')
+          echo "::set-output name=current_date::${current_date}"
+
+          commit_id=$(git rev-parse --short HEAD)
+          echo "::set-output name=commit_id::${commit_id}"
+
+          if [ -z "${{ github.event.inputs.ref }}" ]; then
+            ref=${commit_id}
+          else
+            ref=${{ github.event.inputs.ref }}
+          fi
+          echo "::set-output name=ref::${ref}"
+
+          if [ -z "${{ github.event.inputs.prerelease }}" ]; then
+            echo "::set-output name=prerelease::false"
+            echo "::set-output name=tag::${ref}"
+          else
+            echo "::set-output name=prerelease::true"
+            echo "::set-output name=tag::${current_date}-${ref}"
+          fi
+
+
+      - name: check release
+        uses: actions/github-script@v3
+        id: check-release
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          result-encoding: string
+          script: |
+            try {
+              let release = await github.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: '${{steps.get-commit-id.outputs.tag}}'
+              })
+              return release.data.id
+            } catch(e) {
+              // console.log(e)
+              return ''
+            }
+
+
+      - name: create release
+        uses: actions/github-script@v3
+        id: create-release
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          result-encoding: string
+          script: |
+            if ('${{steps.check-release.outputs.result}}' !== ''){
+              return '${{steps.check-release.outputs.result}}'
+            }
+            let release = await github.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: '${{steps.get-commit-id.outputs.tag}}',
+              body: '[${{steps.get-commit-id.outputs.commit_id}}](https://github.com/NationalSecurityAgency/ghidra/tree/${{steps.get-commit-id.outputs.commit_id}})',
+              prerelease: ${{steps.get-commit-id.outputs.prerelease}},
+            })
+            if (!release.data.id) {
+              throw('create release')
+            }
+            return release.data.id
+
+      - name: delete assets
+        uses: actions/github-script@v3
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            let assets = await github.repos.listReleaseAssets({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: ${{steps.create-release.outputs.result}}
+            })
+
+            for (let i in assets.data) {
+              await github.repos.deleteReleaseAsset({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  asset_id: assets.data[i].id
+              })
+            }
+
+      - name: upload assets
+        uses: actions/github-script@v3
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const path = require('path')
+            const fs = require('fs')
+            for (let file of await fs.readdirSync('build/dist')) {
+              await github.repos.uploadReleaseAsset({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  release_id: ${{steps.create-release.outputs.result}},
+                  name: file,
+                  data: await fs.readFileSync('build/dist/' + file)
+              })
+            }
