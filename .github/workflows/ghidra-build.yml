@@ -26,6 +26,12 @@ jobs:
       - uses: actions/setup-java@v1
         with:
           java-version: 11
+      - name: Add Gradle to the PATH for Windows
+        run: |
+          choco install gradle --version=6.8.3 --force
+      - name: Print Gradle Version
+        run: gradle -version
+
       - name: Install bison
         run: |
           choco install winflexbison
@@ -55,6 +61,15 @@ jobs:
       - uses: actions/setup-java@v1
         with:
           java-version: 11
+      - name: Add Gradle to the PATH for Unix
+        run: |
+          wget https://services.gradle.org/distributions/gradle-6.8.3-bin.zip
+          unzip -qq gradle-6.8.3-bin.zip
+          rm gradle-6.8.3-bin.zip
+          echo "$(pwd)/gradle-6.8.3/bin" >> $GITHUB_PATH
+
+      - name: Print Gradle Version
+        run: gradle -version
 
       - run: |
           gradle --init-script gradle/support/fetchDependencies.gradle init
@@ -79,6 +94,15 @@ jobs:
       - uses: actions/setup-java@v1
         with:
           java-version: 11
+      - name: Add Gradle to the PATH for Unix
+        run: |
+          wget https://services.gradle.org/distributions/gradle-6.8.3-bin.zip
+          unzip -qq gradle-6.8.3-bin.zip
+          rm gradle-6.8.3-bin.zip
+          echo "$(pwd)/gradle-6.8.3/bin" >> $GITHUB_PATH
+
+      - name: Print Gradle Version
+        run: gradle -version
 
       - run: |
           gradle --init-script gradle/support/fetchDependencies.gradle init
@@ -116,6 +140,15 @@ jobs:
       - uses: actions/setup-java@v1
         with:
           java-version: 11
+      - name: Add Gradle to the PATH for Unix
+        run: |
+          wget https://services.gradle.org/distributions/gradle-6.8.3-bin.zip
+          unzip -qq gradle-6.8.3-bin.zip
+          rm gradle-6.8.3-bin.zip
+          echo "$(pwd)/gradle-6.8.3/bin" >> $GITHUB_PATH
+
+      - name: Print Gradle Version
+        run: gradle -version
 
       - run: |
           gradle --init-script gradle/support/fetchDependencies.gradle init
