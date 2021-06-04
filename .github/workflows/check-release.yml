@@ -25,17 +25,6 @@ jobs:
               }
             })
 
-            await github.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'ghidra-build.yml',
-              ref: context.ref,
-              inputs: {
-                ref: 'debugger',
-                prerelease: '1'
-              }
-            })
-
             let tags = await github.repos.listTags({
               owner: 'NationalSecurityAgency',
               repo: 'ghidra',
